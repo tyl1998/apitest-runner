@@ -1,0 +1,21 @@
+{
+  "name": "apitest-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ApiTrack 自研 CI Runner（P4.5）：主动外连平台，领取任务、clone 仓库、跑用户脚本、按 offset 推日志、上报终态。",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0"
+  }
+}

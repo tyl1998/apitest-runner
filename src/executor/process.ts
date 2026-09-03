@@ -42,6 +42,17 @@ export function inflightCount(): number {
   return inflight.length;
 }
 
+/* 容器档（executor/container/*.ts）的用户进程不是 spawnDetached 起的，但「停机时全杀」
+   要把它算进来：注册/注销一对由各通道的 run() 自己调用，名单语义不变。 */
+export function registerInflightKill(kill: (reason: KillReason) => void): void {
+  inflight.push(kill);
+}
+
+export function unregisterInflightKill(kill: (reason: KillReason) => void): void {
+  const index = inflight.indexOf(kill);
+  if (index >= 0) inflight.splice(index, 1);
+}
+
 function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   if (child.pid === undefined) return;
   try {

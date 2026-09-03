@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
+import type { ContainerTransport } from "./executor/container/runtime.js";
 
 /**
  * Runner 配置，全部来自环境变量（自托管机器上没有「改一行代码重启」这个选项）。
@@ -27,6 +28,16 @@ export type RunnerConfig = {
   shutdownGraceSeconds: number;
   /** complete 重试窗口：窗口内失败则保留状态目录，等下次启动补报（边界 8）。 */
   completeRetrySeconds: number;
+  /** 容器档（P4.5-10）：docker CLI 命令（ podman 别名时指到这里）。`"off"` 显式关。 */
+  dockerCommand: string;
+  /** 容器档通道（P4.5-10b）：`cli` 走 `docker run`（默认），`api` 走 Engine API over unix socket。 */
+  dockerTransport: ContainerTransport;
+  /** `api` 通道的 socket 路径；`cli` 通道不读这一格。 */
+  dockerSocket: string;
+  /** 容器档：镜像里跑脚本的 shell（挂进去的 script.sh 用它执行）。 */
+  imageShell: string;
+  /** 容器档：是否给容器挂缓存卷（缓存目录直挂，不靠软链——容器里软链指向宿主路径不通）。 */
+  containerCacheEnabled: boolean;
 };
 
 const DEFAULT_SHELL = existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh";
@@ -35,6 +46,12 @@ function readInt(name: string, fallback: number, min: number, max: number): numb
   const raw = Number(process.env[name]);
   if (!Number.isFinite(raw)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(raw)));
+}
+
+function readBool(name: string, fallback: boolean): boolean {
+  const raw = (process.env[name] ?? "").trim().toLowerCase();
+  if (!raw) return fallback;
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
 export function loadConfig(): { config?: RunnerConfig; errors: string[] } {
@@ -67,6 +84,21 @@ export function loadConfig(): { config?: RunnerConfig; errors: string[] } {
       shell: (process.env.APITRACK_RUNNER_SHELL ?? "").trim() || DEFAULT_SHELL,
       shutdownGraceSeconds: readInt("APITRACK_RUNNER_SHUTDOWN_GRACE_SECONDS", 30, 1, 3600),
       completeRetrySeconds: readInt("APITRACK_RUNNER_COMPLETE_RETRY_SECONDS", 300, 10, 86_400),
+      /* 容器档三件（P4.5-10）："off" 是显式关闭（不探测、不自报）；缺省 "docker" 但
+         探测失败也只是不自报 container，进程档照常工作。imageShell 独立于 shell：
+         镜像的文件系统与宿主无关（busybox 镜像没有 bash）。缓存卷默认开——挂卷与
+         软链不冲突（容器档走挂卷路径，prepareCache 的软链只在进程档消费）。 */
+      dockerCommand: (process.env.APITRACK_RUNNER_DOCKER ?? "").trim() || "docker",
+      /* 通道选择（P4.5-10b）：默认 cli——它把 create→attach→start 的时序、流的解复用、
+         限额单位换算都做好了，且日志里那行 `docker run …` 用户能直接复现。选 api 的
+         唯一硬理由是 OOMKilled 的确定性判定（cli 在 --rm 下拿不到 inspect 窗口）。
+         非法值静默回落 cli 而不是报错：这一格配错不该让整台 Runner 起不来。 */
+      dockerTransport: (process.env.APITRACK_RUNNER_DOCKER_TRANSPORT ?? "").trim().toLowerCase() === "api"
+        ? ("api" as ContainerTransport)
+        : ("cli" as ContainerTransport),
+      dockerSocket: (process.env.APITRACK_RUNNER_DOCKER_SOCKET ?? "").trim() || "/var/run/docker.sock",
+      imageShell: (process.env.APITRACK_RUNNER_IMAGE_SHELL ?? "").trim() || "/bin/sh",
+      containerCacheEnabled: readBool("APITRACK_RUNNER_CONTAINER_CACHE", true),
     },
     errors,
   };

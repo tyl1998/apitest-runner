@@ -79,12 +79,17 @@ export class PlatformClient {
    * 响应是 camelCase——`heartbeatIntervalSeconds` 与 `pollTimeoutSeconds` 由平台下发，
    * Runner 不自定间隔：租约时长（90s）是平台侧回收器的判据，客户端自选间隔
    * 等于让它自己决定多久算掉线。
+   *
+   * `docker_transport` 是容器档通道的自报（cli = `docker run` 命令，api = Engine API
+   * over unix socket）：部署时由 `APITRACK_RUNNER_DOCKER_TRANSPORT` 选定，注册时带上
+   * 才能让 Runner 池面板说清「这台机器用哪条通道连 daemon」。
    */
   async register(input: {
     name: string;
     labels: string[];
     capacity: number;
     sandboxModes: string[];
+    dockerTransport?: string;
   }): Promise<RegisterResult> {
     const data = await this.post(
       "/runner/register",
@@ -93,6 +98,7 @@ export class PlatformClient {
         labels: input.labels,
         capacity: input.capacity,
         sandbox_modes: input.sandboxModes,
+        ...(input.dockerTransport ? { docker_transport: input.dockerTransport } : {}),
         version: RUNNER_VERSION,
         protocol_version: PROTOCOL_VERSION,
       },

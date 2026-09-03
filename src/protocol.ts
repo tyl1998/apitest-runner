@@ -35,8 +35,18 @@ export type JobSpec = {
   };
   steps: string;
   env: Record<string, string>;
+  /**
+   * **平台自 P4.5-14 起恒发空数组**（任务级 secret 已删，见服务端计划 8.11）。字段留在
+   * 协议里而不是删掉：v1.0 是冻结协议，去掉一个键会让部署中的 Runner 解析到 `undefined`。
+   * 脱敏机制（`masker.ts`）照旧存在——它现在的唯一输入是 clone 凭据。
+   */
   secrets: { key: string; value: string }[];
   cache: { paths: string[]; key_files: string[] };
+  /**
+   * 平台侧现在只发 `allure`（目录从任务命令行的 `--alluredir` 解析）或 `none`（解析不到）。
+   * `junit` 仍是合法协议值且解析器仍在（`report/junit.ts`），只是平台不再提供入口——
+   * 删一个能跑的解析器换不来任何东西。
+   */
   report: { format: "none" | "junit" | "allure"; paths: string[] };
   artifact_paths: string[];
   case_filter: { case_keys: string[] } | null;
@@ -96,6 +106,10 @@ export type ReportCase = {
   finished_at_ms?: number | null;
   host?: string | null;
   thread?: string | null;
+  /* allure 结果文件的 uuid（迁移 044）：参数化用例带 @allure.title 时，两个参数的
+     name/fullName 完全相同，没有它平台会把第二条执行当重复吞掉（失败计数少一）。
+     junit 的 classname::name 自带参数化 id，缺省即可。 */
+  external_id?: string;
 };
 
 /** 固定四段阶段 + pending/done（迁移 038 的 CHECK）。 */

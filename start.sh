@@ -7,6 +7,12 @@
 #   ./start.sh restart    # 停止后再启动
 #   ./start.sh status     # 查看运行状态
 #
+# 启动类命令可跟第二个参数指定容器档 Docker 通道（默认读 .env 的
+# APITRACK_RUNNER_DOCKER_TRANSPORT，缺省 cli）：
+#   ./start.sh start api    # 用 Engine API over unix socket 起 Runner
+#   ./start.sh fg cli       # 前台走 docker run 通道
+#   ./start.sh start        # 不指定则用 .env 里的值
+#
 # 环境变量见 README；必填的是 APITRACK_RUNNER_URL 与 APITRACK_RUNNER_TOKEN。
 # .env 一行一个 KEY=VALUE，只补缺、不覆盖 shell 里已导出的变量。
 set -euo pipefail
@@ -16,10 +22,24 @@ PID_FILE="$ROOT/.runner.pid"
 LOG_FILE="$ROOT/runner.log"
 
 CMD="${1:-start}"
+TRANSPORT="${2:-}"
 case "$CMD" in
   start|fg|stop|restart|status) ;;
   *)
     echo "未知命令: $CMD (支持 start | fg | stop | restart | status)" >&2
+    exit 1
+    ;;
+esac
+
+case "$TRANSPORT" in
+  '')
+    # 未指定：用 .env / shell 里的 APITRACK_RUNNER_DOCKER_TRANSPORT
+    ;;
+  cli|api)
+    export APITRACK_RUNNER_DOCKER_TRANSPORT="$TRANSPORT"
+    ;;
+  *)
+    echo "未知 Docker 通道: $TRANSPORT (支持 cli | api；仅 start / fg / restart 会用)" >&2
     exit 1
     ;;
 esac

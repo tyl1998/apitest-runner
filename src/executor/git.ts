@@ -6,8 +6,8 @@ import { PhaseError, lastMeaningfulLine, sanitizeUrlForLog, type SpawnFn, type S
 /**
  * git 拉取（Spec 2.10.2(d)：准备独立 workspace → clone）。三种 `clone_method`：
  *
- * - `none`：公开仓库，直接 fetch，不带任何凭据机制（迁移 037 的默认值——「不需要凭据」
- *   应该是默认状态而不是特例）。
+ * - `none`：公开仓库，直接 fetch，不带任何凭据机制（平台侧的表达是「任务不引用任何
+ *   Git 凭据」，见服务端迁移 041——「不需要凭据」应该是默认状态而不是特例）。
  * - `https_token`：凭据经 **GIT_ASKPASS** 注入。不嵌进 URL（token 会随 `ps` 的 argv 泄露）、
  *   不进 `git remote add`（token 会落进 workspace 的 `.git/config`，存活到任务结束）——
  *   askpass 脚本 0700、放在 job 目录里、finally 删除，与 ssh key 同一条纪律（边界 11）。
@@ -35,7 +35,7 @@ export async function cloneRepository(deps: {
   const { clone_url, clone_method, credential } = spec.repo;
 
   if (!clone_url.trim()) {
-    throw new PhaseError("failed", "repository has no clone_url configured; set it on the repository page first");
+    throw new PhaseError("failed", "repository has no clone_url configured; set the task's git URL first");
   }
 
   /* 所有 git 子命令共有的环境：绝不弹终端提示——凭据不对就快点失败，别挂到超时。 */

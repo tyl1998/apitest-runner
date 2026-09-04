@@ -46,13 +46,24 @@ const PASS_THROUGH_ENV = [
   "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
 ];
 
-function buildScriptEnv(spec: JobSpec): NodeJS.ProcessEnv {
+function buildScriptEnv(spec: JobSpec, containerMode = false): NodeJS.ProcessEnv {
   const env: Record<string, string> = {};
   for (const name of PASS_THROUGH_ENV) {
     const value = process.env[name];
     if (value !== undefined) env[name] = value;
   }
   Object.assign(env, spec.env ?? {});
+  /* 容器档的下载缓存引导（前提：任务配了 cache_paths + key_files）：pip/uv 的包下载
+     缓存指到 workspace 挂卷内，用户脚本裸写 `pip install` / `pytest` 也能把「第一次
+     下载的包」留在执行机器上——requirements 变了但大部分包没变时省的是下载时间。
+     刻意**不**做 PIP_PREFIX/VIRTUAL_ENV 之类的安装重定向：装好的环境依赖镜像里的
+     python 版本与布局，隐式改写 pip 行为会变成「为什么包装到奇怪的地方」的坑；
+     想缓存整个 venv 的任务在脚本里显式建 venv（表单提示已给示例）。
+     任务 env 显式设置的同名变量已在上面覆盖，用户配置优先。 */
+  if (containerMode && spec.cache.paths.length && spec.cache.key_files.length) {
+    env.PIP_CACHE_DIR ??= `${WORKSPACE_CONTAINER_PATH}/.cache/pip`;
+    env.UV_CACHE_DIR ??= `${WORKSPACE_CONTAINER_PATH}/.cache/uv`;
+  }
   for (const secret of spec.secrets ?? []) {
     if (secret.key) env[secret.key] = secret.value;
   }
@@ -375,9 +386,15 @@ export async function runJob(deps: RunJobDeps): Promise<void> {
           ],
           /* buildScriptEnv 产出 NodeJS.ProcessEnv（值可 undefined），两条通道的 env
              都不接受空值条目——这里收窄成纯 Record，undefined 的键本来就不会被写进去。 */
-          env: buildScriptEnv(spec) as Record<string, string>,
+          env: buildScriptEnv(spec, containerMode) as Record<string, string>,
           limits: limits!,
           stopTimeoutSeconds: 5,
+          /* 平台回连地址的 per-container DNS（jobSpec 的 containerLoopback 改写目标）。
+             `host-gateway` 是 docker 20.10+ 的官方 token：daemon 把它替换成「容器到
+             宿主的网关」——Mac 桌面产品是宿主转发地址（网桥在 Linux VM 里，网关 IP
+             不是 macOS 宿主，自查网关会错）、Linux 原生 docker 是网桥网关。两种环境
+             同一个 token，平台不猜网络拓扑。 */
+          extraHosts: ["host.apitrack.internal:host-gateway"],
         };
         log(`container transport ${containerRuntime.transport}, image ${spec.sandbox.image}`);
         scriptResult = await containerRuntime.run({

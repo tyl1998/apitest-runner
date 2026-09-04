@@ -100,6 +100,13 @@ export async function uploadAllureReportBundle(deps: {
       checksum,
     });
     await withRetry(() => client.uploadArtifact(target, new Uint8Array(bundle)));
+    /* 与 uploader.ts 同款确认：s3 驱动的 uploaded_at 落在这次调用上。报告包是平台
+       自己要解析的产物，确认失败会让报告视图静默降级为空——记一条日志提示。 */
+    try {
+      await client.confirmArtifactUploaded(target.artifact_id, runnerId);
+    } catch (error) {
+      log(`report-bundle: upload confirm failed (${error instanceof Error ? error.message : String(error)}); report view may stay empty until reconciled`);
+    }
     log(`report-bundle: uploaded allure-results.zip (${files} files, ${bundle.byteLength} bytes)`);
   } catch (error) {
     log(`report-bundle: upload failed (${error instanceof Error ? error.message : String(error)}); skipped`);

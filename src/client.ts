@@ -231,6 +231,19 @@ export class PlatformClient {
     }
   }
 
+  /**
+   * 上传完成确认（`POST /runner/artifacts/:id/uploaded`）：s3 驱动下 `uploaded_at`
+   * 的落位点——pre-signed PUT 的结果只有存储知道，平台要核过才认。fs 驱动幂等回
+   * ok，所以这里不需要知道驱动是哪档。失败按 best-effort 纪律由调用方记日志。
+   */
+  async confirmArtifactUploaded(artifactId: string, runnerId: string): Promise<void> {
+    await this.post(
+      `/runner/artifacts/${artifactId}/uploaded`,
+      { runner_id: runnerId },
+      { timeoutMs: this.requestTimeoutMs },
+    );
+  }
+
   private async post(
     path: string,
     body: unknown,

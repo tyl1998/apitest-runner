@@ -77,6 +77,13 @@ export async function uploadArtifacts(deps: {
       });
       const body = await readFileBuffered(file);
       await withRetry(() => deps.client.uploadArtifact(target, body));
+      /* 确认走 best-effort：fs 驱动幂等回 ok；s3 驱动不确认会让 uploaded_at 恒空、
+         产物列表与报告装载一起饿死。失败只记日志，不当上传失败处理（对象已在）。 */
+      try {
+        await deps.client.confirmArtifactUploaded(target.artifact_id, deps.runnerId);
+      } catch (error) {
+        deps.log(`artifact: confirm failed for ${basename(file)} (${error instanceof Error ? error.message : String(error)}); the object may need manual reconciliation`);
+      }
       totalBytes += size;
       uploaded.push({ name: basename(file), size_bytes: size, checksum });
       deps.log(`artifact: uploaded ${basename(file)} (${size} bytes)`);

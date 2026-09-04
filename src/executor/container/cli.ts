@@ -203,6 +203,9 @@ export function buildDockerRunArgs(spec: ContainerSpec, opts?: { storageOpt?: bo
        只读还挡掉「脚本把自己 chmod 成 setuid」这类花招。 */
     args.push("--volume", `${bind.host}:${bind.container}${bind.readOnly ? ":ro" : ""}`);
   }
+  for (const extraHost of spec.extraHosts) {
+    args.push("--add-host", extraHost);
+  }
   for (const [key, value] of Object.entries(spec.env)) {
     if (!key || key.includes("=")) continue;
     args.push("--env", `${key}=${value}`);

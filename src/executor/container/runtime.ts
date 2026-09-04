@@ -55,6 +55,14 @@ export type ContainerSpec = {
   limits: ContainerLimits;
   /** stop 时 daemon 等 PID1 自己退的秒数，之后 daemon 自己 SIGKILL。 */
   stopTimeoutSeconds: number;
+  /**
+   * per-container DNS 追加（`--add-host` / `HostConfig.ExtraHosts`）。唯一消费者是
+   * `host.apitrack.internal: host-gateway`——容器档 SDK 回连平台用的名字（jobSpec 的
+   * containerLoopback 改写目标）。`host-gateway` 是 docker 20.10+ 的官方 token，由
+   * daemon 替换成「容器到宿主的网关」：桌面产品是宿主转发地址、Linux 是网桥网关——
+   * 平台不猜网络拓扑，两种环境同一个值。
+   */
+  extraHosts: string[];
 };
 
 /**

@@ -351,6 +351,7 @@ export function buildCreateBody(spec: ContainerSpec, opts?: { storageOpt?: boole
     HostConfig: {
       Binds: binds,
       NetworkMode: spec.network,
+      ...(spec.extraHosts.length ? { ExtraHosts: spec.extraHosts } : {}),
       NanoCpus: cpuToNanoCpus(spec.limits.cpu),
       Memory: memoryToBytes(spec.limits.memory),
       ...(opts?.storageOpt === false ? {} : { StorageOpt: { size: spec.limits.disk } }),

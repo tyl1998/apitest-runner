@@ -3,4 +3,5 @@ dist/
 data/
 .env
 .runner.pid
+.runner.run.cmd
 *.log

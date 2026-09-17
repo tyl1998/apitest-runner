@@ -24,6 +24,21 @@ cp .env.example .env        # 填 URL / Token / 分区标签
 ./stop.sh                   # 独立停止入口；--force 快停（SIGTERM 后 10s 即 SIGKILL）
 ```
 
+Windows（PowerShell，语义同上一段；也可直接双击 `start.cmd` / `stop.cmd`）：
+
+```powershell
+pnpm install; pnpm build
+Copy-Item .env.example .env     # 填 URL / Token / 分区标签
+.\start.ps1                     # 后台启动；.\start.ps1 fg 前台调试
+.\start.ps1 status              # 运行状态；stop / restart 同形
+.\stop.ps1 -Force               # 独立停止入口；-Force 快停（最多等 10s 即强杀）
+```
+
+Windows 没有 POSIX `SIGTERM`：停止是 `taskkill /T`（进程树）——先请求关闭、超「收尾
+宽限 + 90s」强杀，所以 Runner 自己的优雅收尾多不触发；在途任务由平台租约回收 + 下次
+启动补报兜底。若提示脚本被禁止运行，用
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1`（`.cmd` 包装已自带）。
+
 `start.sh` 从 `.env` 补缺环境变量（shell 里已导出的优先）、把日志追加到 `runner.log`
 （pid 记在 `.runner.pid`）、启动失败时翻出最后 20 行日志；`stop` 发 SIGTERM 后按
 「收尾宽限 + 90s」等待——Runner 自己会停止领取、等在途任务收尾、超宽限杀进程树并按
@@ -228,3 +243,14 @@ cd apitest-runner
 # 不指定 → 用 .env 的 APITRACK_RUNNER_DOCKER_TRANSPORT（缺省 cli）
 ./start.sh start
 ```
+
+Windows 同形（命令/通道都是位置参数）：
+
+```powershell
+cd apitest-runner
+.\start.ps1 start api    # Engine API over unix socket（容器档，需能访问 docker socket）
+.\start.ps1 start cli    # docker run 通道
+.\start.ps1 fg api       # 前台调试
+.\start.ps1 start        # 不指定 → 用 .env 的 APITRACK_RUNNER_DOCKER_TRANSPORT（缺省 cli）
+```
+

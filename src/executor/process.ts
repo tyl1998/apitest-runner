@@ -1,12 +1,14 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 
 /**
- * 进程档执行原语（8.5）：`spawn` + `detached: true`，超时/取消/停机时 kill **整个进程组**
- * （负 pid），而不是只杀直接子进程。
+ * 进程档执行原语（8.5）：`spawn` + `detached: true`，超时/取消/停机时 kill **整棵进程树**
+ * （POSIX 用负 pid 打进程组，Windows 用 `taskkill /T`），而不是只杀直接子进程。
  *
- * 为什么必须 detached：用户脚本里 `sleep 9999 &` 起的后台进程、pytest 拉起的被测服务，
+ * 为什么必须全杀：用户脚本里 `sleep 9999 &` 起的后台进程、pytest 拉起的被测服务，
  * 都是孙进程——只杀直接子进程会漏，漏一个就永久占着 Runner 的槽位（验收门槛 8）。
- * 进程组（detached 让子进程成为组长）是 POSIX 上唯一可靠的「全杀」原语。
+ * POSIX 上进程组（detached 让子进程成为组长）是唯一可靠的全杀原语；Windows 没有
+ * 「向进程组发信号」这回事（Node 的 `process.kill(-pid)` 也不支持负 pid），只有
+ * `taskkill /PID <pid> /T` 沿父子链递归——两条系统两种原语，语义对齐在 `killGroup`。
  *
  * 容器档（P4.5-10）不在这里：`docker run --rm` 天然全杀，加进来只会让这份文件
  * 在未来同时背两套语义。
@@ -31,6 +33,10 @@ export type ProcHandle = {
 /** TERM 之后的强杀宽限：给进程组 5 秒清理（写报告、关连接），然后 SIGKILL。 */
 const KILL_GRACE_MS = 5_000;
 
+/** taskkill 自身的上限：它只是杀进程，卡住说明系统出问题了，不能连带拖住 job 收尾。 */
+const TASKKILL_TIMEOUT_MS = 10_000;
+
+
 const inflight: Array<(reason: KillReason) => void> = [];
 
 /** 优雅停机用：杀掉所有还在跑的用户进程（runJob 会把结果按 aborted 补报）。 */
@@ -53,8 +59,31 @@ export function unregisterInflightKill(kill: (reason: KillReason) => void): void
   if (index >= 0) inflight.splice(index, 1);
 }
 
+/**
+ * Windows 上的「全杀」：`taskkill /T` 沿快照出的父子链递归（`/F` 才是强杀）。不带 `/F`
+ * 的那一发是宽限窗口里的礼貌尝试——控制台程序通常直接返回「只能强制终止」，但 GUI
+ * 子进程（被测服务）能收到 WM_CLOSE 自己收尾，值得先给这一下。同步调用是刻意的：
+ * `kill` 的契约是「返回时树已经收到信号」，异步投递会让随后的收尾（删网络、清目录）
+ * 与还在跑的子孙进程抢文件。
+ */
+function killTreeWindows(pid: number, force: boolean): void {
+  try {
+    spawnSync("taskkill", ["/PID", String(pid), "/T", ...(force ? ["/F"] : [])], {
+      stdio: "ignore",
+      windowsHide: true,
+      timeout: TASKKILL_TIMEOUT_MS,
+    });
+  } catch {
+    /* taskkill 不可用（PATH 被裁剪、精简系统）：这一刀落空，`close` 事件照常兜底。 */
+  }
+}
+
 function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   if (child.pid === undefined) return;
+  if (process.platform === "win32") {
+    killTreeWindows(child.pid, signal === "SIGKILL");
+    return;
+  }
   try {
     process.kill(-child.pid, signal);
   } catch {
@@ -107,6 +136,9 @@ export function spawnDetached(opts: {
         cwd: opts.cwd,
         env: opts.env,
         detached: true,
+        /* Windows：detached 的进程不该弹出控制台窗口（脚本的管道已经被我们接管），
+           POSIX 上这一格被忽略。 */
+        windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {

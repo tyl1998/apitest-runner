@@ -64,6 +64,10 @@ async function main(): Promise<void> {
   };
   process.once("SIGTERM", onSignal);
   process.once("SIGINT", onSignal);
+  /* Windows 没有可投递的 SIGTERM：另一个进程只能用 taskkill（硬死）或对目标控制台
+     GenerateConsoleCtrlEvent 发 Ctrl+Break。后者 Node 映射成 'SIGBREAK'，所以在
+     Windows 上把它接成同一套优雅停机入口，start.ps1/stop.ps1 才能触发在途 job 收尾。 */
+  process.once("SIGBREAK", onSignal);
 
   await recoverJobs({ client, config, runnerId: registered.runnerId });
 

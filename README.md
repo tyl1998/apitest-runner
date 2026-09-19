@@ -10,7 +10,9 @@ ApiTrack 平台的自研 CI Runner（P4.5）。部署在**能访问被测服务*
 ## 部署
 
 前置：Node ≥ 20、`git`（每个任务都要 clone，硬前置）、`ssh`（只有 `ssh_key` 拉取方式的
-任务需要）。要跑**容器档**任务另需 `docker`（探测通过时 Runner 自报
+任务需要）、**一个 POSIX shell**（进程档把任务的 steps 原样写成 shell 脚本：Linux/macOS
+自带 `/bin/sh`；Windows 上装 Git for Windows，Runner 会自动找到它的 `bash.exe` / `sh.exe`，
+也可以用 `APITRACK_RUNNER_SHELL` 明确指定）。要跑**容器档**任务另需 `docker`（探测通过时 Runner 自报
 `process+container`）；`iptables` 用于出站 deny 列表（缺失时降级并写进 job 日志，
 见「容器档」一节）。
 
@@ -58,7 +60,7 @@ Windows 没有 POSIX `SIGTERM`：停止是 `taskkill /T`（进程树）——先
 | `APITRACK_RUNNER_LABELS`                 | `default`                | 逗号分隔；必须是 Token 允许的标签子集（服务端注册时校验）                                                             |
 | `APITRACK_RUNNER_CAPACITY`               | `1`                      | 同时跑几个 job（1–64）                                                                                               |
 | `APITRACK_RUNNER_DATA_DIR`               | `~/.apitrack-runner`     | workspace / 缓存 / 崩溃恢复状态的根目录；Docker 部署指到卷上                                                          |
-| `APITRACK_RUNNER_SHELL`                  | `/bin/bash` 或 `/bin/sh` | 跑用户脚本的 shell                                                                                                    |
+| `APITRACK_RUNNER_SHELL`                  | 自动探测                 | 跑用户脚本的 POSIX shell；POSIX 按 `/bin/bash` → `/bin/sh` 探测，Windows 找 PATH / Git for Windows 的 `bash.exe`、`sh.exe` |
 | `APITRACK_RUNNER_SHUTDOWN_GRACE_SECONDS` | `30`                     | SIGTERM 后等在途任务自然收尾的上限，超时杀进程树并按`aborted` 补报                                                    |
 | `APITRACK_RUNNER_COMPLETE_RETRY_SECONDS` | `300`                    | complete 重试窗口；窗口耗尽仍失败则保留状态目录，下次启动补报                                                         |
 | `APITRACK_RUNNER_DOCKER`                 | `docker`                 | 容器档的 CLI 命令（`podman` 机器写 podman）；`off` 显式只跑进程档；缺省探测本机 docker，失败则只自报 process          |
@@ -90,6 +92,10 @@ Windows 没有 POSIX `SIGTERM`：停止是 `taskkill /T`（进程树）——先
 仓库里的脚本，就像信任一个传统 CI agent 上的脚本一样」。它**没有** CPU/内存/磁盘限额、
 **没有**网络隔离（脚本可以访问这台机器能访问的一切，包括平台下发的凭据）、**没有**文件
 系统隔离。
+
+进程档在 Windows 上同样可用：Runner 自动探测 Git for Windows / MSYS 的 `bash.exe`（其次
+`sh.exe`）来跑任务脚本，超时/取消/停机时用 `taskkill /T` 沿父子链收掉整棵进程树（Windows
+没有 POSIX 进程组，`System32` 下的 `bash.exe` 是 WSL 入口，会被跳过）。
 
 **容器档**（P4.5-10）把这三样补齐：
 

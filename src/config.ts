@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import type { ContainerTransport } from "./executor/container/runtime.js";
 
 /**
@@ -40,7 +40,73 @@ export type RunnerConfig = {
   containerCacheEnabled: boolean;
 };
 
-const DEFAULT_SHELL = existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh";
+/**
+ * 进程档的 shell：`steps` 是一整段 shell 文本，Runner 原样写成 `script.sh` 再交给它
+ * （Spec 2.10.2(d)），所以这台机器必须有**一个** POSIX shell。POSIX 上按
+ * `/bin/bash` → `/bin/sh` 探测就够；Windows 上没有 `/bin`（`/bin/sh` 会被解析成当前盘
+ * 根目录下的 `\bin\sh`，永远不存在），要去 PATH 与 Git for Windows 的常见安装位置找
+ * `bash.exe` / `sh.exe`。
+ *
+ * 找不到时**不回落成 `/bin/sh`**：那样第一个任务会在运行期报
+ * `could not start the script: spawn /bin/sh ENOENT`，看到的人只能猜该装什么。启动时
+ * 就把「该设哪个变量」说清楚。
+ */
+function resolveShell(): string | null {
+  const configured = (process.env.APITRACK_RUNNER_SHELL ?? "").trim();
+  if (configured) return configured;
+  for (const candidate of ["/bin/bash", "/bin/sh"]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return process.platform === "win32" ? findWindowsShell() : null;
+}
+
+/**
+ * Windows 上的候选 shell 目录，按可靠性排序：Git for Windows 的标准安装位置在前，
+ * 然后是 PATH。
+ *
+ * 为什么把 `%SystemRoot%`（含 `System32`）与 `WindowsApps` 剔出去：那里的 `bash.exe`
+ * 不是 POSIX shell，而是 WSL 的入口（`WindowsApps` 里是商店别名）。它会把参数当成
+ * 「在默认发行版里执行」，拿到我们的 `C:\…\script.sh` 只会报一句文件不存在——比直接
+ * 说「没有 shell」更难查。Git for Windows（或 scoop / chocolatey 装的 MSYS）的
+ * `bash.exe` / `sh.exe` 才是能在 Windows 侧跑脚本的那一个。
+ */
+function windowsShellDirs(): string[] {
+  const programFiles = process.env.ProgramFiles;
+  const programFilesX86 = process.env["ProgramFiles(x86)"];
+  const localAppData = process.env.LOCALAPPDATA;
+  const gitDirs = [
+    programFiles && join(programFiles, "Git", "bin"),
+    programFilesX86 && join(programFilesX86, "Git", "bin"),
+    localAppData && join(localAppData, "Programs", "Git", "bin"),
+  ].filter((dir): dir is string => Boolean(dir));
+
+  const systemRoot = (process.env.SystemRoot ?? "C:\\Windows").toLowerCase();
+  const pathDirs = (process.env.PATH ?? "")
+    .split(delimiter)
+    .map((dir) => dir.trim())
+    .filter((dir) => {
+      if (!dir) return false;
+      const lower = dir.toLowerCase();
+      return !lower.startsWith(systemRoot) && !lower.includes("\\windowsapps\\");
+    });
+
+  return [...new Set([...gitDirs, ...pathDirs])];
+}
+
+/**
+ * Windows 上的候选 shell：先 `bash.exe`（busybox 的 sh 没有 `set -euo pipefail` 这些
+ * 写法），再 `sh.exe`。返回绝对路径，免得 spawn 再依赖一次 PATH/PATHEXT 解析。
+ */
+function findWindowsShell(): string | null {
+  const dirs = windowsShellDirs();
+  for (const name of ["bash.exe", "sh.exe"]) {
+    for (const dir of dirs) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
 
 function readInt(name: string, fallback: number, min: number, max: number): number {
   const raw = Number(process.env[name]);
@@ -70,6 +136,16 @@ export function loadConfig(): { config?: RunnerConfig; errors: string[] } {
     .filter(Boolean);
   if (!labels.length) errors.push("APITRACK_RUNNER_LABELS resolved to an empty set");
 
+  /* 进程档的 shell 在这里就该定下来（见 resolveShell）：运行期才发现等于把一条配置
+     错误伪装成一次任务失败。 */
+  const shell = resolveShell();
+  if (!shell) {
+    errors.push(
+      "no POSIX shell found for process-mode jobs (steps are shell scripts): " +
+        "install Git for Windows, or set APITRACK_RUNNER_SHELL to bash.exe/sh.exe",
+    );
+  }
+
   if (errors.length) return { errors };
 
   return {
@@ -81,7 +157,7 @@ export function loadConfig(): { config?: RunnerConfig; errors: string[] } {
       /* 上限 64 对齐服务端的 clamp（routes/runners.ts）：两边各猜一个数只会互相打架。 */
       capacity: readInt("APITRACK_RUNNER_CAPACITY", 1, 1, 64),
       dataDir: (process.env.APITRACK_RUNNER_DATA_DIR ?? "").trim() || join(homedir(), ".apitrack-runner"),
-      shell: (process.env.APITRACK_RUNNER_SHELL ?? "").trim() || DEFAULT_SHELL,
+      shell: shell!,
       shutdownGraceSeconds: readInt("APITRACK_RUNNER_SHUTDOWN_GRACE_SECONDS", 30, 1, 3600),
       completeRetrySeconds: readInt("APITRACK_RUNNER_COMPLETE_RETRY_SECONDS", 300, 10, 86_400),
       /* 容器档三件（P4.5-10）："off" 是显式关闭（不探测、不自报）；缺省 "docker" 但

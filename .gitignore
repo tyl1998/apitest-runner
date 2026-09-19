@@ -3,5 +3,6 @@ dist/
 data/
 .env
 .runner.pid
+# 运行期生成的启动包装脚本（含本机绝对路径，start.ps1 每次启动重建）
 .runner.run.cmd
 *.log

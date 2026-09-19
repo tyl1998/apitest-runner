@@ -1,0 +1,5 @@
+# pnpm 设置（pnpm 10+ 起从 .npmrc 搬到这里）。pnpm 默认不跑依赖的安装脚本，
+# 未批准的包会在 install/build 阶段以 ERR_PNPM_IGNORED_BUILDS 中断。
+# esbuild 是 tsx 的传递依赖，它的 postinstall 负责落地平台二进制，必须放行。
+allowBuilds:
+  esbuild: true

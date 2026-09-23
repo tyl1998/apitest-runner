@@ -1,0 +1,18 @@
+# 依赖与构建产物：镜像内重新安装/编译
+node_modules
+dist
+*.tsbuildinfo
+
+# 运行态数据与密钥（dataDir 默认在这里，绝不进镜像）
+.env
+.env.*
+*.log
+.apitrack-runner
+
+# 版本控制与编辑器噪音
+.git
+.gitignore
+.vscode
+.idea
+
+README.md
